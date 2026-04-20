@@ -104,8 +104,7 @@ configure_theme() {
     sleep 2
 }
 
-# Fungsi untuk mencadangkan dan memulihkan
-# Fungsi untuk backup dan restore (3 opsi)
+# Fungsi untuk backup dan restore (dukungan .tar.gz dan .zip)
 backup_restore() {
     clear
     echo "========================================="
@@ -151,7 +150,16 @@ backup_restore() {
                 pm2 stop sellvpn 2>/dev/null
                 
                 echo "Merestore data..."
-                tar -xzf "$backup_file" -C /etc/zivpn
+                # Cek ekstensi file
+                if [[ "$backup_file" == *.tar.gz ]]; then
+                    tar -xzf "$backup_file" -C /etc/zivpn
+                elif [[ "$backup_file" == *.zip ]]; then
+                    unzip -o "$backup_file" -d /etc/zivpn
+                else
+                    echo "❌ Format tidak didukung! Gunakan .tar.gz atau .zip"
+                    sleep 2
+                    return
+                fi
                 
                 echo "Memulai ulang service..."
                 systemctl restart zivpn.service 2>/dev/null
@@ -166,8 +174,9 @@ backup_restore() {
         3)
             # Restore from Link
             echo ""
-            echo "Masukkan link backup (.tar.gz):"
+            echo "Masukkan link backup (.tar.gz atau .zip):"
             echo "Contoh: https://domain.com/backup_zivpn.tar.gz"
+            echo "Atau: https://domain.com/backup_zivpn.zip"
             echo ""
             read -p "Link: " LINK_BACKUP
             
@@ -197,11 +206,15 @@ backup_restore() {
             systemctl stop zivpn.service 2>/dev/null
             pm2 stop sellvpn 2>/dev/null
             
-            # Download dan restore
+            # Download file
             echo "⬇️ Download file backup..."
             cd /root
             FILENAME=$(basename "$LINK_BACKUP")
-            wget -O "$FILENAME" "$LINK_BACKUP"
+            
+            # Hapus parameter URL jika ada (untuk link dengan ?token=xxx)
+            FILENAME=$(echo "$FILENAME" | cut -d'?' -f1)
+            
+            wget -O "$FILENAME" "$LINK_BACKUP" --no-check-certificate
             
             if [ ! -f "$FILENAME" ]; then
                 echo "❌ Gagal mendownload file!"
@@ -211,9 +224,28 @@ backup_restore() {
             
             echo "📦 Ekstrak dan restore..."
             mkdir -p /etc/zivpn
-            tar -xzf "$FILENAME" -C /etc/zivpn/
+            
+            # Cek ekstensi file
+            if [[ "$FILENAME" == *.tar.gz ]]; then
+                tar -xzf "$FILENAME" -C /etc/zivpn/
+                echo "   Format: tar.gz"
+            elif [[ "$FILENAME" == *.zip ]]; then
+                # Cek apakah unzip terinstall
+                if ! command -v unzip &> /dev/null; then
+                    echo "   Menginstall unzip..."
+                    apt-get install -y unzip > /dev/null 2>&1
+                fi
+                unzip -o "$FILENAME" -d /etc/zivpn/
+                echo "   Format: zip"
+            else
+                echo "❌ Format file tidak didukung! (hanya .tar.gz atau .zip)"
+                rm -f "$FILENAME"
+                sleep 2
+                return
+            fi
             
             # Sinkronisasi konfigurasi
+            echo "⚙️ Menyinkronkan konfigurasi..."
             if [ -f "/etc/zivpn/users.db.json" ] && [ -f "/etc/zivpn/config.json" ]; then
                 passwords_json=$(jq -c '[.[].password]' /etc/zivpn/users.db.json 2>/dev/null)
                 if [ -n "$passwords_json" ]; then
@@ -222,7 +254,7 @@ backup_restore() {
                 fi
             fi
             
-            # Bersihkan
+            # Bersihkan file download
             rm -f "$FILENAME"
             
             # Restart service
@@ -262,6 +294,7 @@ backup_restore() {
             sleep 2
             ;;
     esac
+    
     echo -n -e "\n${PROMPT_COLOR}Tekan [Enter] untuk melanjutkan...${NC}"; read
 }
 
