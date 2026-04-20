@@ -9,11 +9,11 @@ show_warning() {
     echo -e "      ⚠️  PERINGATAN PENTING! ⚠️"
     echo -e "\033[1;31m============================================\033[0m"
     echo -e "\033[1;33mInstalasi ini akan:\033[0m"
-    echo -e "  • Menghentikan service ZIVPN yang sedang berjalan"
+
     echo -e "  • Mengubah konfigurasi iptables"
     echo -e "  • Membuka port UDP 6000-19999 dan 5667"
     echo -e "  • Menginstal beberapa package tambahan"
-    echo -e "\033[1;31m  • SSH UDP HC akan MATI/OFFLINE selama proses instalasi\033[0m"
+    echo -e "\033[1;31m  • SSH UDP HC akan MATI/OFFLINE selama setelah selesai instalasi\033[0m"
     echo -e "\033[1;33m  • Akan restart service setelah selesai\033[0m"
     echo -e "\033[1;31m============================================\033[0m"
     echo -e ""
