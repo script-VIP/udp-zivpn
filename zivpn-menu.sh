@@ -105,38 +105,161 @@ configure_theme() {
 }
 
 # Fungsi untuk mencadangkan dan memulihkan
+# Fungsi untuk backup dan restore (3 opsi)
 backup_restore() {
     clear
-    echo -e "${YELLOW}--- Full Backup/Restore ---${NC}"
-    echo -e "${WHITE}1. Create Backup${NC}"
-    echo -e "${WHITE}2. Restore from Local File${NC}"
-    echo -n -e "\n${PROMPT_COLOR} -> Pilihan Anda:${NC} "
-    read choice
+    echo "========================================="
+    echo "        BACKUP & RESTORE ZIVPN"
+    echo "========================================="
+    echo ""
+    echo "1. Create Backup (Simpan ke File)"
+    echo "2. Restore from Local File"
+    echo "3. Restore from Link (URL)"
+    echo "0. Kembali"
+    echo ""
+    read -p "Pilihan Anda: " choice
 
     case $choice in
         1)
+            # Create Backup
             backup_file="/root/zivpn_backup_$(date +%Y-%m-%d).tar.gz"
             tar -czf "$backup_file" -C /etc/zivpn .
-            echo -e "${GREEN}Backup created successfully at $backup_file${NC}"
-
-            # Send the backup to Telegram
-            caption="Zivpn Backup - $(date +'%Y-%m-%d %H:%M:%S')"
-            send_document "$backup_file" "$caption"
-            echo -e "${GREEN}Backup file sent to Telegram.${NC}"
-            ;;
-        2)
-            echo -n -e "${PROMPT_COLOR} -> Masukkan path lengkap ke file backup:${NC} "
-            read backup_file
-            if [ -f "$backup_file" ]; then
-                tar -xzf "$backup_file" -C /etc/zivpn
-                echo -e "${GREEN}Restore successful. Restarting service...${NC}"
-                sync_config
-            else
-                echo -e "${RED}Error: Backup file not found.${NC}"
+            echo ""
+            echo "✅ Backup created successfully!"
+            echo "📁 File: $backup_file"
+            
+            # Kirim ke Telegram jika dikonfigurasi
+            if [ -f "/etc/zivpn/bot_config.sh" ]; then
+                source /etc/zivpn/bot_config.sh
+                if [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
+                    caption="Zivpn Backup - $(date +'%Y-%m-%d %H:%M:%S')"
+                    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+                        -F "chat_id=${CHAT_ID}" \
+                        -F "document=@${backup_file}" \
+                        -F "caption=${caption}" > /dev/null
+                    echo "📤 Backup sent to Telegram!"
+                fi
             fi
             ;;
+        2)
+            # Restore from Local File
+            echo ""
+            read -p "Masukkan path lengkap file backup: " backup_file
+            if [ -f "$backup_file" ]; then
+                echo "Menghentikan service..."
+                systemctl stop zivpn.service 2>/dev/null
+                pm2 stop sellvpn 2>/dev/null
+                
+                echo "Merestore data..."
+                tar -xzf "$backup_file" -C /etc/zivpn
+                
+                echo "Memulai ulang service..."
+                systemctl restart zivpn.service 2>/dev/null
+                pm2 restart sellvpn 2>/dev/null
+                pm2 save 2>/dev/null
+                
+                echo "✅ Restore successful!"
+            else
+                echo "❌ Error: File backup tidak ditemukan!"
+            fi
+            ;;
+        3)
+            # Restore from Link
+            echo ""
+            echo "Masukkan link backup (.tar.gz):"
+            echo "Contoh: https://domain.com/backup_zivpn.tar.gz"
+            echo ""
+            read -p "Link: " LINK_BACKUP
+            
+            if [ -z "$LINK_BACKUP" ]; then
+                echo "❌ Link tidak boleh kosong!"
+                sleep 2
+                return
+            fi
+            
+            echo ""
+            echo "PERINGATAN: Data ZIVPN saat ini akan DI TIMPA!"
+            read -p "Lanjutkan restore? (y/n): " confirm
+            
+            if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+                echo "Restore dibatalkan."
+                sleep 2
+                return
+            fi
+            
+            # Backup data lama
+            echo "📦 Membackup data lama..."
+            mkdir -p /root/zivpn_backup_sebelum_restore
+            [ -d "/etc/zivpn" ] && cp -r /etc/zivpn /root/zivpn_backup_sebelum_restore/
+            
+            # Hentikan service
+            echo "⏹️ Menghentikan service..."
+            systemctl stop zivpn.service 2>/dev/null
+            pm2 stop sellvpn 2>/dev/null
+            
+            # Download dan restore
+            echo "⬇️ Download file backup..."
+            cd /root
+            FILENAME=$(basename "$LINK_BACKUP")
+            wget -O "$FILENAME" "$LINK_BACKUP"
+            
+            if [ ! -f "$FILENAME" ]; then
+                echo "❌ Gagal mendownload file!"
+                sleep 2
+                return
+            fi
+            
+            echo "📦 Ekstrak dan restore..."
+            mkdir -p /etc/zivpn
+            tar -xzf "$FILENAME" -C /etc/zivpn/
+            
+            # Sinkronisasi konfigurasi
+            if [ -f "/etc/zivpn/users.db.json" ] && [ -f "/etc/zivpn/config.json" ]; then
+                passwords_json=$(jq -c '[.[].password]' /etc/zivpn/users.db.json 2>/dev/null)
+                if [ -n "$passwords_json" ]; then
+                    jq --argjson passwords "$passwords_json" '.auth.config = $passwords | .config = $passwords' /etc/zivpn/config.json > /etc/zivpn/config.json.tmp 2>/dev/null
+                    mv /etc/zivpn/config.json.tmp /etc/zivpn/config.json 2>/dev/null
+                fi
+            fi
+            
+            # Bersihkan
+            rm -f "$FILENAME"
+            
+            # Restart service
+            echo "🔄 Memulai ulang service..."
+            systemctl daemon-reload
+            systemctl restart zivpn.service 2>/dev/null
+            pm2 restart sellvpn 2>/dev/null
+            pm2 save 2>/dev/null
+            
+            # Tampilkan hasil
+            TOTAL_AKUN=$(jq 'length' /etc/zivpn/users.db.json 2>/dev/null)
+            echo ""
+            echo "✅ RESTORE BERHASIL!"
+            echo "📊 Total akun: $TOTAL_AKUN"
+            echo ""
+            
+            # Kirim notifikasi Telegram
+            if [ -f "/etc/zivpn/bot_config.sh" ]; then
+                source /etc/zivpn/bot_config.sh
+                if [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
+                    MESSAGE="✅ *RESTORE ZIVPN BERHASIL*%0A"
+                    MESSAGE+="📅 Tanggal: $(date '+%Y-%m-%d %H:%M:%S')%0A"
+                    MESSAGE+="📁 File: $FILENAME%0A"
+                    MESSAGE+="👥 Total Akun: $TOTAL_AKUN"
+                    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                        -d "chat_id=${CHAT_ID}" \
+                        -d "text=${MESSAGE}" \
+                        -d "parse_mode=markdown" > /dev/null
+                fi
+            fi
+            ;;
+        0)
+            return
+            ;;
         *)
-            echo -e "${RED}Invalid option.${NC}"
+            echo "Pilihan tidak valid!"
+            sleep 2
             ;;
     esac
     echo -n -e "\n${PROMPT_COLOR}Tekan [Enter] untuk melanjutkan...${NC}"; read
