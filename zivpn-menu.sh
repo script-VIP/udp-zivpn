@@ -904,6 +904,7 @@ show_menu() {
     printf " [%02d] Bandwidth      | [%02d] Cek CPU/RAM\n" 14 15
     printf " [%02d] Update Script  | [%02d] Kelola Layanan\n" 16 17
     echo "-----------------------------------------------------------"
+    printf " [%02d] INSTAL ZIVPN\n" 99
     printf " [%02d] Exit\n" 0
     echo "==========================================================="
     ) | eval "$THEME_CMD"
@@ -933,6 +934,7 @@ while true; do
         15) check_cpu_ram ;;
         16) update_script ;;
         17) manage_service ;;
+        99) manage_service ;;
         0) exit 0 ;;
         *)
             echo -e "${RED}Invalid option, please try again.${NC}"
